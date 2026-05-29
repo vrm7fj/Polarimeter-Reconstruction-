@@ -1,0 +1,353 @@
+#include "TChain.h"
+#include "TTreeFormula.h"
+#include "TObjArray.h"
+#include "TObjString.h"
+#include "TString.h"
+#include "TCut.h"
+#include "TH1D.h"
+#include "TH2D.h"
+#include "TCanvas.h"
+#include "TStyle.h"
+#include "TLegend.h"
+#include "TLine.h"
+#include "TMath.h"
+#include <iostream>
+#include <fstream>
+#include <vector>
+
+using namespace std;
+
+TCut globalcut_c1 = "";
+TCut globalcut_c2 = "";
+TString file1_dataname = "file1";
+TString file2_dataname = "file2";
+
+std::vector<TString> filesC1;
+std::vector<TString> filesC2;
+
+void draw_vertical_line(double x, int color=kRed, int width=2){
+  double ymin = gPad->GetUymin();
+  double ymax = gPad->GetUymax();
+  TLine *l = new TLine(x,ymin,x,ymax);
+  l->SetLineColor(color);
+  l->SetLineWidth(width);
+  l->Draw("same");
+}
+
+void draw_two_vertical_lines(double x1, double x2, int color=kMagenta+1, int width=2){
+  draw_vertical_line(x1,color,width);
+  draw_vertical_line(x2,color,width);
+}
+
+void draw_box_2d(double x1, double x2, double y1, double y2, int color=kMagenta+1, int width=2){
+  TLine *l1 = new TLine(x1,y1,x1,y2);
+  TLine *l2 = new TLine(x2,y1,x2,y2);
+  TLine *l3 = new TLine(x1,y1,x2,y1);
+  TLine *l4 = new TLine(x1,y2,x2,y2);
+
+  l1->SetLineColor(color); l2->SetLineColor(color);
+  l3->SetLineColor(color); l4->SetLineColor(color);
+
+  l1->SetLineWidth(width); l2->SetLineWidth(width);
+  l3->SetLineWidth(width); l4->SetLineWidth(width);
+
+  l1->Draw("same"); l2->Draw("same");
+  l3->Draw("same"); l4->Draw("same");
+}
+
+void fill_histograms_from_chain(
+    TChain *C,
+    TCut globalcut,
+    TH1D *htheta,
+    TH1D *hsclose,
+    TH1D *hz_all,
+    TH1D *hz_lo,
+    TH1D *hz_hi,
+    TH2D *h2_theta_zclose,
+    double theta_cut )
+{
+  const UInt_t MAXTRACKS = 1000;
+
+  double ntracks = 0;
+  double besttrack = 0;
+
+  std::vector<double> track_theta(MAXTRACKS,0.0);
+  std::vector<double> track_sclose(MAXTRACKS,0.0);
+  std::vector<double> track_zclose(MAXTRACKS,0.0);
+
+  C->SetBranchStatus("*",0);
+
+  C->SetBranchStatus("sbs.gemFPP.track.ntrack",1);
+  C->SetBranchStatus("sbs.gemFPP.track.besttrack",1);
+  C->SetBranchStatus("sbs.gemFPP.track.theta",1);
+  C->SetBranchStatus("sbs.gemFPP.track.sclose",1);
+  C->SetBranchStatus("sbs.gemFPP.track.zclose",1);
+
+  C->SetBranchStatus("sbs.*",1);
+  C->SetBranchStatus("heep.*",1);
+  C->SetBranchStatus("earm.*",1);
+  C->SetBranchStatus("g.runnum", 1);
+
+
+  C->SetBranchAddress("sbs.gemFPP.track.ntrack", &ntracks);
+  C->SetBranchAddress("sbs.gemFPP.track.besttrack", &besttrack);
+  C->SetBranchAddress("sbs.gemFPP.track.theta", &(track_theta[0]));
+  C->SetBranchAddress("sbs.gemFPP.track.sclose", &(track_sclose[0]));
+  C->SetBranchAddress("sbs.gemFPP.track.zclose", &(track_zclose[0]));
+
+  TTreeFormula *GlobalCut = new TTreeFormula("GlobalCut", globalcut, C);
+
+  Long64_t nevent = 0;
+  int treenum = -1;
+  int currenttreenum = -1;
+
+  while( C->GetEntry(nevent) ){
+    currenttreenum = C->GetTreeNumber();
+    if( nevent == 0 || currenttreenum != treenum ){
+      treenum = currenttreenum;
+      GlobalCut->UpdateFormulaLeaves();
+    }
+
+    bool passedcut = GlobalCut->EvalInstance(0) != 0;
+
+    if( nevent % 1000000 == 0 && nevent > 0 ){
+      cout << "Processed event " << nevent << endl;
+    }
+
+    if( !passedcut ){
+      nevent++;
+      continue;
+    }
+
+    int NTRACKS = int(ntracks);
+    int itrack  = int(besttrack);
+
+    if( NTRACKS < 1 ){
+      nevent++;
+      continue;
+    }
+
+    if( itrack < 0 || itrack >= NTRACKS ){
+      nevent++;
+      continue;
+    }
+
+    double theta_deg = track_theta[itrack] * TMath::RadToDeg();
+    double sclose    = track_sclose[itrack];
+    double zclose    = track_zclose[itrack];
+
+    htheta->Fill(theta_deg);
+    hsclose->Fill(sclose);
+    hz_all->Fill(zclose);
+    h2_theta_zclose->Fill(zclose, theta_deg);
+
+    if( theta_deg <= theta_cut ) hz_lo->Fill(zclose);
+    else                         hz_hi->Fill(zclose);
+
+    nevent++;
+  }
+}
+
+void recon_compare(
+    const char *configfilename = "config_resid_gemFT_MFFO.txt",
+    const char *outputfilename = "polarimeter_reco_compare_loop.pdf" )
+{
+  ifstream configfile(configfilename);
+
+  TChain *C1 = new TChain("T");
+  TChain *C2 = new TChain("T");
+
+  if( configfile ){
+    TString currentline;
+
+    while( currentline.ReadLine(configfile) && !currentline.BeginsWith("endconfig") ){
+      if( !currentline.BeginsWith("#") ){
+        TObjArray *tokens = currentline.Tokenize(" ");
+        int ntokens = tokens->GetEntries();
+
+        if( ntokens >= 2 ){
+          TString skey = ((TObjString*) (*tokens)[0])->GetString();
+
+          if( skey == "rootfile1" ){
+            TString sval = ((TObjString*) (*tokens)[1])->GetString();
+            C1->Add(sval);
+            filesC1.push_back(sval);
+          }
+
+          if( skey == "globalcut_rootfile1" ){
+            globalcut_c1 = ((TObjString*) (*tokens)[1])->GetString();
+          }
+
+          if( skey == "rootfile1_dataname" ){
+            file1_dataname = ((TObjString*) (*tokens)[1])->GetString();
+          }
+
+          if( skey == "rootfile2" ){
+            TString sval = ((TObjString*) (*tokens)[1])->GetString();
+            C2->Add(sval);
+            filesC2.push_back(sval);
+          }
+
+          if( skey == "globalcut_rootfile2" ){
+            globalcut_c2 = ((TObjString*) (*tokens)[1])->GetString();
+          }
+
+          if( skey == "rootfile2_dataname" ){
+            file2_dataname = ((TObjString*) (*tokens)[1])->GetString();
+          }
+        }
+      }
+    }
+  } else {
+    cerr << "Could not find configuration file" << endl;
+    return;
+  }
+
+  cout << "ROOT files loaded successfully!" << endl;
+  cout << "C1: ";
+  for( auto &f : filesC1 ) cout << f << " ";
+  cout << endl;
+  cout << "GlobalCut = " << globalcut_c1 << endl;
+  cout << "DataName  = " << file1_dataname << endl << endl;
+
+  cout << "C2: ";
+  for( auto &f : filesC2 ) cout << f << " ";
+  cout << endl;
+  cout << "GlobalCut = " << globalcut_c2 << endl;
+  cout << "DataName  = " << file2_dataname << endl << endl;
+
+  // row-1 settings
+  double theta_cut_1    = 1.10;
+  double theta_min_1    = 1.10;
+  double theta_max_1    = 4.5;
+  double sclose_cut_1   = 0.005;
+  double zclose_min_1   = 1.20;
+  double zclose_max_1   = 1.80;
+
+  // row-2 settings
+  double theta_cut_2    = 1.1;
+  double theta_min_2    = 1.1;
+  double theta_max_2    = 4.5;
+  double sclose_cut_2   = 0.005;
+  double zclose_min_2   = 1.20;
+  double zclose_max_2   = 1.80;
+
+  // ---------- Histograms for file 1 ----------
+  TH1D *htheta1 = new TH1D("htheta1", Form("%s;#vartheta_{FPP} (deg);Counts", file1_dataname.Data()), 150, 0, 8);
+  TH1D *hsclose1 = new TH1D("hsclose1", Form("%s;DOCA (m);Counts", file1_dataname.Data()), 150, 0, 0.010);
+  TH1D *hzall1 = new TH1D("hzall1", Form("%s;z_{close} (m);Counts", file1_dataname.Data()), 150, 0, 3.0);
+  TH1D *hzlo1  = new TH1D("hzlo1",  Form("%s;z_{close} (m);Counts", file1_dataname.Data()), 150, 0, 3.0);
+  TH1D *hzhi1  = new TH1D("hzhi1",  Form("%s;z_{close} (m);Counts", file1_dataname.Data()), 150, 0, 3.0);
+  TH2D *h2_1   = new TH2D("h2_1",   Form("%s;z_{close} (m);#vartheta_{FPP} (deg)", file1_dataname.Data()), 150, 0, 3.0, 150, 0, 8.0);
+
+  // ---------- Histograms for file 2 ----------
+  TH1D *htheta2 = new TH1D("htheta2", Form("%s;#vartheta_{FPP} (deg);Counts", file2_dataname.Data()), 150, 0, 8);
+  TH1D *hsclose2 = new TH1D("hsclose2", Form("%s;DOCA (m);Counts", file2_dataname.Data()), 150, 0, 0.010);
+  TH1D *hzall2 = new TH1D("hzall2", Form("%s;z_{close} (m);Counts", file2_dataname.Data()), 150, 0, 3.0);
+  TH1D *hzlo2  = new TH1D("hzlo2",  Form("%s;z_{close} (m);Counts", file2_dataname.Data()), 150, 0, 3.0);
+  TH1D *hzhi2  = new TH1D("hzhi2",  Form("%s;z_{close} (m);Counts", file2_dataname.Data()), 150, 0, 3.0);
+  TH2D *h2_2   = new TH2D("h2_2",   Form("%s;z_{close} (m);#vartheta_{FPP} (deg)", file2_dataname.Data()), 150, 0, 3.0, 150, 0, 8.0);
+
+  // Fill from explicit event loops
+  fill_histograms_from_chain(C1, globalcut_c1, htheta1, hsclose1, hzall1, hzlo1, hzhi1, h2_1, theta_cut_1);
+  fill_histograms_from_chain(C2, globalcut_c2, htheta2, hsclose2, hzall2, hzlo2, hzhi2, h2_2, theta_cut_2);
+
+  // styles
+  hzall1->SetLineColor(kBlack);
+  hzlo1->SetLineColor(kRed);
+  hzhi1->SetLineColor(kBlue);
+  hzlo1->SetFillColorAlpha(kRed,0.25);
+  hzhi1->SetFillColorAlpha(kBlue,0.25);
+  hzall1->SetLineWidth(2);
+  hzlo1->SetLineWidth(2);
+  hzhi1->SetLineWidth(2);
+
+  hzall2->SetLineColor(kBlack);
+  hzlo2->SetLineColor(kRed);
+  hzhi2->SetLineColor(kBlue);
+  hzlo2->SetFillColorAlpha(kRed,0.25);
+  hzhi2->SetFillColorAlpha(kBlue,0.25);
+  hzall2->SetLineWidth(2);
+  hzlo2->SetLineWidth(2);
+  hzhi2->SetLineWidth(2);
+
+  htheta1->SetLineWidth(2);
+  hsclose1->SetLineWidth(2);
+  htheta2->SetLineWidth(2);
+  hsclose2->SetLineWidth(2);
+
+  gStyle->SetOptStat(0);
+
+  TCanvas *c = new TCanvas("c", "Polarimeter reconstruction", 2200, 1200);
+  c->Divide(4,2);
+
+  // -------- first row --------
+  c->cd(1);
+  gPad->SetLogy();
+  htheta1->Draw("hist");
+  gPad->Update();
+  draw_two_vertical_lines(theta_min_1, theta_max_1, kRed, 2);
+
+  c->cd(2);
+  gPad->SetLogy(0);
+  hsclose1->Draw("hist");
+  gPad->Update();
+  draw_vertical_line(sclose_cut_1, kRed, 2);
+
+  c->cd(3);
+  hzall1->Draw("hist");
+  hzlo1->Draw("hist same");
+  hzhi1->Draw("hist same");
+  gPad->Update();
+  draw_two_vertical_lines(zclose_min_1, zclose_max_1, kMagenta+1, 2);
+  {
+    TLegend *leg = new TLegend(0.40,0.67,0.88,0.88);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->AddEntry(hzall1,"all","l");
+    leg->AddEntry(hzlo1,Form("#vartheta_{FPP} #leq %.1f deg",theta_cut_1),"lf");
+    leg->AddEntry(hzhi1,Form("#vartheta_{FPP} > %.1f deg",theta_cut_1),"lf");
+    leg->Draw();
+  }
+
+  c->cd(4);
+  h2_1->Draw("colz");
+  gPad->Update();
+  draw_box_2d(zclose_min_1, zclose_max_1, theta_min_1, theta_max_1, kMagenta+1, 2);
+
+  // -------- second row --------
+  c->cd(5);
+  gPad->SetLogy();
+  htheta2->Draw("hist");
+  gPad->Update();
+  draw_two_vertical_lines(theta_min_2, theta_max_2, kRed, 2);
+
+  c->cd(6);
+  gPad->SetLogy(0);
+  hsclose2->Draw("hist");
+  gPad->Update();
+  draw_vertical_line(sclose_cut_2, kRed, 2);
+
+  c->cd(7);
+  hzall2->Draw("hist");
+  hzlo2->Draw("hist same");
+  hzhi2->Draw("hist same");
+  gPad->Update();
+  draw_two_vertical_lines(zclose_min_2, zclose_max_2, kMagenta+1, 2);
+  {
+    TLegend *leg = new TLegend(0.40,0.67,0.88,0.88);
+    leg->SetBorderSize(0);
+    leg->SetFillStyle(0);
+    leg->AddEntry(hzall2,"all","l");
+    leg->AddEntry(hzlo2,Form("#vartheta_{FPP} #leq %.2f deg",theta_cut_2),"lf");
+    leg->AddEntry(hzhi2,Form("#vartheta_{FPP} > %.2f deg",theta_cut_2),"lf");
+    leg->Draw();
+  }
+
+  c->cd(8);
+  h2_2->Draw("colz");
+  gPad->Update();
+  draw_box_2d(zclose_min_2, zclose_max_2, theta_min_2, theta_max_2, kMagenta+1, 2);
+
+  c->SaveAs(outputfilename);
+}

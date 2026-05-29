@@ -1,0 +1,431 @@
+#include "TH1D.h"
+#include "TH2D.h"
+#include "TCut.h"
+#include <iostream>
+#include "TTreeFormula.h"
+#include "TCanvas.h"
+#include "TLine.h"
+#include "THStack.h"
+#include "TF1.h"
+#include "TFitResult.h"
+#include "TPaveText.h"
+#include "TMath.h"
+#include "TStyle.h"
+#include "TLegend.h"
+#include "TChain.h"
+#include "TPaveStats.h"
+
+void polarimeter_recon() {
+
+  // Handle the input file
+  //TString filename2 = "/volatile/halla/sbs/vidura/GEP_REPLAYS/GEP1/LH2/LH2_MAY17/rootfiles/gep5_fullreplay_*";
+  //TString filename2 = "/volatile/halla/sbs/vidura/GEP_REPLAYS/GEP3/LH2/MFFON_MAY18_ZERO3/rootfiles/gep5_fullreplay_*";
+  //TString filename1 = "/cache/halla/sbs/prod/GEP_REPLAYS/puckett/August19/gep5_fullreplay_5968*";
+    TString filename2 = "/volatile/halla/sbs/vidura/GEP_REPLAYS/GEP1/LH2/LH2_START_OVER_IT1/rootfiles/gep5_fullreplay_*";
+  //TString filename1 = "/cache/halla/sbs/prod/GEP_REPLAYS/GEP1/LH2/May28_2025/gep5_fullreplay_2881*";
+  //TString filename1 = "/cache/halla/sbs/prod/GEP_REPLAYS/GEP1/LH2/May28_2025/gep5_fullreplay_2881*";
+  //TString filename2 = "/volatile/halla/sbs/adr/gep_replayed/GEP3/mult_foil_optics_2/rootfiles/gep5_fullreplay_*";
+
+  TChain *c = new TChain("T");
+  //c->Add(filename1);
+  c->Add(filename2);
+  
+  // Define Global Cuts here
+  TCut globalcut_thetafpp = "abs(heep.dt_ADC-14.75)<12&&(sbs.gemFT.track.nhits[0]>4||sbs.gemFT.track.ngoodhits[0]>2)&&(sbs.gemFPP.track.nhits[0]>4||sbs.gemFPP.track.ngoodhits[0]>2)&&sqrt(pow((heep.dxECAL[0]+0.002232+0.025*earm.ecal.x[0])/0.01874,2)+pow((heep.dyECAL[0]+0.001319-(0.02781+0.009648*earm.ecal.x[0]+0.008797*pow(earm.ecal.x[0],2)+0.0129*pow(earm.ecal.x[0],3)))/0.02143,2))<=3.5&&sqrt(pow((sbs.gemFPP.track.y[0]+sbs.gemFPP.track.yp[0]*6.7-sbs.hcal.y[0]-0.01672)/0.06043,2)+pow((sbs.gemFPP.track.x[0]+sbs.gemFPP.track.xp[0]*6.7-sbs.hcal.x[0]-0.1842)/0.06863,2))<=3.5&&earm.ecal.nblk[0]>2&&sbs.hcal.nblk[0]>1&&abs(sbs.tr.vz[0]+0.1)<0.15&&abs(heep.dpp+0.02499)<0.02098*3";
+  
+  //TCut globalcut_thetafpp = "(sbs.gemFT.track.nhits[0]>4||sbs.gemFT.track.ngoodhits[0]>2)&&(sbs.gemFPP.track.nhits[0]>4||sbs.gemFPP.track.ngoodhits[0]>2)&&((g.runnum==4200&&(abs(sbs.tr.vz[0]+0.2361)<0.01683*2||abs(sbs.tr.vz[0]+0.1229)<0.01456*2||abs(sbs.tr.vz[0]+0.06976)<0.01346*2||abs(sbs.tr.vz[0]-0.04050)<0.01221*2))||(g.runnum==4203&&(abs(sbs.tr.vz[0]+0.1769)<0.01788*2||abs(sbs.tr.vz[0]+0.01242)<0.01362*2)))&&sqrt(pow((sbs.gemFPP.track.x[0]+6.7*sbs.gemFPP.track.xp[0]-sbs.hcal.x[0]-0.2034)/0.07053,2)+pow((sbs.gemFPP.track.y[0]+6.7*sbs.gemFPP.track.yp[0]-sbs.hcal.y[0]+0.01278)/0.04283,2))<2&&sbs.hcal.nblk>1";
+
+  
+  //gStyle->SetOptStat(0);
+  gStyle->SetTitleFont(42, "XYZ");
+  gStyle->SetLabelFont(42, "XYZ");
+  gStyle->SetTitleSize(0.055, "XYZ");
+  gStyle->SetLabelSize(0.045, "XYZ");
+  gStyle->SetTitleOffset(1.0, "X");
+  gStyle->SetTitleOffset(1.05, "Y");
+  gStyle->SetPadTickX(1);
+  gStyle->SetPadTickY(1);
+  gStyle->SetFrameLineWidth(1);
+  gStyle->SetHistLineWidth(1);
+
+  // Define Histograms
+  TH1D *htheta_fpp = new TH1D("htheta_fpp", "theta_fpp;theta[deg]; count", 100, 0, 10);
+  TH1D *hdoca = new TH1D("hdoca", "DOCA;DOCA[cm];count", 50, 0, 2);
+
+  TH1D *hzclose_all = new TH1D("hzclose_all", "zclose_all; zclose[m]; count", 75, 0, 3.5);
+  TH1D *hzclose_sAng = new TH1D("hzclose_sAng", "zlcose_sAng; zclose[m]; count", 75, 0, 3.5);
+  TH1D *hzclose_lAng = new TH1D("hzclose_lAng", "zlcose_lAng; zclose[m]; count", 75, 0, 3.5);
+
+  TH1D *hdxp = new TH1D("hdxp", "dxp; xp_ft-xp_fpp[deg]; count", 100, -10, 11);
+  TH1D *hdyp = new TH1D("hdyp", "dyp; yp_ft-yp_fpp[deg]; count", 100, -10, 11);
+
+  TH2D *hdxpdyp = new TH2D("hdxpdyp", "dxp vs dyp; xp_ft-xp_fpp[deg]; yp_ft-yp_fpp[deg]", 100, -10, 10, 100, -10, 10 );
+  TH2D *hdxpdyp_allth = new TH2D("hdxpdyp_allth", "dxp vs dyp (No cut on theta); xp_ft-xp_fpp[deg]; yp_ft-yp_fpp[deg]", 100, -10, 10, 100, -10, 10 );
+
+  TH2D *htheta_vs_zclose = new TH2D("htheta_vs_zclose", "theta_vs_zclose; zclose[m]; #theta [deg]", 150, 0, 3.5, 150, 0, 10); 
+  
+  TCanvas *canvas = new TCanvas("polarimeter_recon", "polarimeter_recon", 1100, 700);
+  canvas->Divide(4,2);
+
+  UInt_t MAXHITS = 10000;
+  UInt_t MAXTRACKS = 100;
+  
+  double ntracks;
+  double besttrack;
+  vector<double> theta_fpp(MAXHITS);
+  vector<double> sclose(MAXHITS);
+  vector<double> zclose(MAXHITS);
+
+  vector<double> xpfpp(MAXHITS);
+  vector<double> ypfpp(MAXHITS);
+  vector<double> xpft(MAXHITS);
+  vector<double> ypft(MAXHITS);
+
+  c->SetBranchStatus("*", 0);
+
+  c->SetBranchStatus("heep.dxECAL", 1);
+  c->SetBranchStatus("heep.dyECAL", 1);
+  c->SetBranchStatus("heep.dt_ADC", 1);
+  c->SetBranchStatus("heep.dpp", 1);
+  c->SetBranchStatus("earm.ecal.x", 1);
+  c->SetBranchStatus("earm.ecal.nblk", 1);
+  c->SetBranchStatus("sbs.tr.vz", 1);
+  c->SetBranchStatus("sbs.gemFT.track.nhits", 1);
+  c->SetBranchStatus("sbs.gemFT.track.ngoodhits", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.y", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.yp", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.x", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.xp", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.nhits", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.ngoodhits", 1);
+  c->SetBranchStatus("sbs.hcal.y", 1);
+  c->SetBranchStatus("sbs.hcal.x", 1);
+  c->SetBranchStatus("sbs.hcal.nblk", 1);
+  c->SetBranchStatus("g.runnum", 1);
+
+  c->SetBranchStatus("sbs.gemFT.track.yp", 1);
+  c->SetBranchStatus("sbs.gemFT.track.xp", 1);
+ 
+  c->SetBranchStatus("sbs.gemFPP.track.theta", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.besttrack", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.ntrack", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.sclose", 1);
+  c->SetBranchStatus("sbs.gemFPP.track.zclose", 1);  
+
+  c->SetBranchAddress("sbs.gemFPP.track.theta", &theta_fpp[0]);
+  c->SetBranchAddress("sbs.gemFPP.track.besttrack", &besttrack);
+  c->SetBranchAddress("sbs.gemFPP.track.ntrack", &ntracks);
+  c->SetBranchAddress("sbs.gemFPP.track.sclose", &sclose[0]);
+  c->SetBranchAddress("sbs.gemFPP.track.zclose", &zclose[0]);
+
+  c->SetBranchAddress("sbs.gemFPP.track.xp", &xpfpp[0]);
+  c->SetBranchAddress("sbs.gemFPP.track.yp", &ypfpp[0]);
+  c->SetBranchAddress("sbs.gemFT.track.xp", &xpft[0]);
+  c->SetBranchAddress("sbs.gemFT.track.yp", &ypft[0]);
+
+  int treenum = 0;
+  int currenttreenum = 0;
+  UInt_t nevent = 0;
+
+  double th_max = 8.0;
+  double th_min = 1.1;
+
+  /***************************** Loop for pad 1 and 2 ******************************/
+  TTreeFormula *Globalcut_thetafpp = new TTreeFormula("Globalcut_thetafpp", globalcut_thetafpp, c);
+
+  while( c->GetEntry(nevent++) ){
+
+    currenttreenum = c->GetTreeNumber();
+    if ( nevent == 1 || currenttreenum != treenum ) {
+      treenum = currenttreenum;
+      Globalcut_thetafpp->UpdateFormulaLeaves();
+    }
+
+    int itrack = int(besttrack);
+
+    bool passedcut = Globalcut_thetafpp->EvalInstance(itrack) != 0;
+
+    if (passedcut) {
+      if ( sclose[itrack] < 0.005 /*&& abs(zclose[itrack]-1.5)< (0.55/2)*1.1*/ ) {
+        htheta_fpp->Fill( theta_fpp[itrack]*TMath::RadToDeg() );
+      }
+
+      if ( theta_fpp[itrack]*TMath::RadToDeg() > th_min &&
+           theta_fpp[itrack]*TMath::RadToDeg() < th_max &&
+           abs(zclose[itrack]-1.5) < (0.55/2)*1.1 ) {
+
+        hdoca->Fill( sclose[itrack]*100 );
+      }
+
+      std::cout << "\rtheta_fpp loop nevent: " << nevent << std::flush;
+
+      if ( sclose[itrack] < 0.005 /*&& abs(zclose[itrack]-1.5)< (0.55/2)*1.1*/ ) {
+
+	if ( true ) {
+          hzclose_all->Fill( zclose[itrack] );
+	}
+
+        if ( theta_fpp[itrack]*TMath::RadToDeg() > th_min &&theta_fpp[itrack]*TMath::RadToDeg() < th_max ) {
+
+          hzclose_lAng->Fill( zclose[itrack] );
+
+        } else if ( theta_fpp[itrack]*TMath::RadToDeg() <= th_min ) {
+
+          hzclose_sAng->Fill( zclose[itrack] );
+        }
+        if ( true ) {
+          htheta_vs_zclose->Fill( zclose[itrack], theta_fpp[itrack]*TMath::RadToDeg() );
+	}
+      }
+
+      if ( theta_fpp[itrack]*TMath::RadToDeg() > th_min && theta_fpp[itrack]*TMath::RadToDeg() < th_max && sclose[itrack] < 0.005 && abs(zclose[itrack]-1.5)< (0.55/2)*1.1 ) {
+	hdxp->Fill( (TMath::ATan( xpft[itrack] ) - TMath::ATan( xpfpp[itrack] ) ) * TMath::RadToDeg() );
+        hdyp->Fill( (TMath::ATan( ypft[itrack] ) - TMath::ATan( ypfpp[itrack] ) ) * TMath::RadToDeg() );
+
+	hdxpdyp->Fill( (TMath::ATan( xpft[itrack] ) - TMath::ATan( xpfpp[itrack] ) ) * TMath::RadToDeg(), (TMath::ATan( ypft[itrack] ) - TMath::ATan( ypfpp[itrack] ) ) * TMath::RadToDeg() );
+      }
+
+      if ( sclose[itrack] < 0.005 && abs(zclose[itrack]-1.5)< (0.55/2)*1.1 ) {
+      	hdxpdyp_allth->Fill( (TMath::ATan( xpft[itrack] ) - TMath::ATan( xpfpp[itrack] ) ) * TMath::RadToDeg(), (TMath::ATan( ypft[itrack] ) - TMath::ATan( ypfpp[itrack] ) ) * TMath::RadToDeg() );
+      }
+	
+    }
+  }
+
+  std::cout << std::endl;
+  
+  //gStyle->SetOptStat(0);
+
+  // PAD1
+  canvas->cd(1);
+  gPad->SetLogy();
+
+  TLine *lfpp_theta1 = new TLine(th_min, 0, th_min, htheta_fpp->GetMaximum());
+  TLine *lfpp_theta2 = new TLine(th_max, 0, th_max, htheta_fpp->GetMaximum());
+
+  lfpp_theta1->SetLineWidth(2);
+  lfpp_theta2->SetLineWidth(2);
+
+  lfpp_theta1->SetLineColor(kRed);
+  lfpp_theta2->SetLineColor(kRed);
+  
+  htheta_fpp->Draw();
+  lfpp_theta1->Draw("SAME");
+  lfpp_theta2->Draw("SAME");
+
+  gPad->Modified();
+  gPad->Update();
+
+  TPaveStats *st1 = (TPaveStats*)htheta_fpp->FindObject("stats");
+  if (st1) {
+    st1->SetOptStat(1111);
+    st1->SetX1NDC(0.55); st1->SetX2NDC(0.88);
+    st1->SetY1NDC(0.70); st1->SetY2NDC(0.88);
+    st1->SetTextSize(0.048);
+    st1->Draw("SAME");
+  }
+
+  // PAD2
+  canvas->cd(2);
+
+  gPad->SetLogy(0);
+
+  hdoca->SetTitle("DOCA;DOCA [cm];count");
+  hdoca->Draw("E");
+
+  // Half-Gaussian fit:
+  // f(x) = A * exp( -x^2 / (2 sigma^2) )
+  double fit_min = 0.0;
+  double fit_max = 0.2;
+
+  TF1 *f_halfgaus = new TF1(
+    "f_halfgaus",
+    "[0]*exp(-0.5*x*x/([1]*[1]))",
+    fit_min,
+    fit_max
+  );
+
+  f_halfgaus->SetParNames("A", "#sigma");
+
+  double A0 = hdoca->GetMaximum();
+  double sigma0 = 0.10;
+
+  f_halfgaus->SetParameters(A0, sigma0);
+
+  // Force positive parameters
+  f_halfgaus->SetParLimits(0, 1e-6, 1e9);
+  f_halfgaus->SetParLimits(1, 1e-5, 5.0);
+
+  f_halfgaus->SetLineColor(kBlue);
+  f_halfgaus->SetLineWidth(3);
+
+  // Important:
+  // R  = fit only selected range
+  // Q  = quiet
+  // 0  = do not let ROOT auto-draw fit
+  // Then we draw it manually below.
+  hdoca->Fit(f_halfgaus, "RQ0");
+
+  // Make sure y-axis can contain the fit curve
+  double ymax_hist = hdoca->GetMaximum();
+  double ymax_fit  = f_halfgaus->GetMaximum(fit_min, fit_max);
+
+  if (ymax_fit > ymax_hist) {
+    hdoca->SetMaximum(1.2*ymax_fit);
+  } else {
+    hdoca->SetMaximum(1.2*ymax_hist);
+  }
+
+  // Redraw histogram, then explicitly draw fit on top
+  hdoca->Draw("E");
+  f_halfgaus->Draw("SAME");
+
+  // Draw DOCA cut line after fit so it is visible
+  TLine *lfpp_sclose = new TLine(0.5, 0, 0.5, hdoca->GetMaximum());
+  lfpp_sclose->SetLineWidth(2);
+  lfpp_sclose->SetLineColor(kRed);
+  lfpp_sclose->Draw("SAME");
+
+  // Print parameters manually on the histogram
+  double A      = f_halfgaus->GetParameter(0);
+  double Aerr   = f_halfgaus->GetParError(0);
+  double sigma  = f_halfgaus->GetParameter(1);
+  double sigerr = f_halfgaus->GetParError(1);
+  double chi2   = f_halfgaus->GetChisquare();
+  int ndf       = f_halfgaus->GetNDF();
+
+  TPaveText *pt = new TPaveText(0.40, 0.52, 0.88, 0.88, "NDC");
+  pt->SetFillColor(0);
+  pt->SetBorderSize(1);
+  pt->SetTextFont(42);
+  pt->SetTextSize(0.045);
+  pt->SetTextAlign(12);
+
+  //pt->AddText("Half-Gaussian fit");
+  pt->AddText(Form("Range: %.3f - %.3f cm", fit_min, fit_max));
+  pt->AddText(Form("A = %.3g #pm %.3g", A, Aerr));
+  pt->AddText(Form("#sigma = %.5f #pm %.5f cm", sigma, sigerr));
+
+  if (ndf > 0) {
+    pt->AddText(Form("#chi^{2}/NDF = %.2f / %d = %.2f", chi2, ndf, chi2/ndf));
+  }
+
+  pt->Draw("SAME");
+
+  gPad->Modified();
+  gPad->Update();
+
+  TPaveStats *st2 = (TPaveStats*)hdoca->FindObject("stats");
+  if (st2) {
+    st2->SetOptStat(1111);
+    st2->SetX1NDC(0.55); st2->SetX2NDC(0.88);
+    st2->SetY1NDC(0.30); st2->SetY2NDC(0.48);
+    st2->SetTextSize(0.048);
+    st2->Draw("SAME");
+  }
+
+  gPad->Modified();
+  gPad->Update();
+
+  // PAD3
+  hzclose_all->SetLineColor(kBlack);
+  hzclose_lAng->SetLineColor(kBlack);
+  hzclose_sAng->SetLineColor(kBlack);
+
+  hzclose_lAng->SetFillColor(kYellow);
+  hzclose_sAng->SetFillColor(kGreen);
+
+  canvas->cd(3);
+
+  hzclose_all->Draw("hist");
+  hzclose_sAng->Draw("hist same");
+  hzclose_lAng->Draw("hist same");
+
+  TLegend *leg = new TLegend(0.6, 0.6, 0.9, 0.88);
+
+  leg->AddEntry(hzclose_all, "all", "l");
+  leg->AddEntry(hzclose_lAng,Form("#theta_{FPP} > %.2f", th_min), "lf");
+  leg->AddEntry(hzclose_sAng, Form("#theta_{FPP} <= %.2f", th_min), "lf");
+  leg->Draw();
+  gPad->Modified();
+  gPad->Update();
+
+
+  TPaveStats *st3 = (TPaveStats*)hzclose_all->FindObject("stats");
+  if (st3) {
+    st3->SetOptStat(1111);
+    st3->SetX1NDC(0.55); st3->SetX2NDC(0.88);
+    st3->SetY1NDC(0.30); st3->SetY2NDC(0.48);
+    st3->SetTextSize(0.048);
+    st3->Draw("SAME");
+  }
+
+  // PAD4
+  canvas->cd(4);
+  gStyle->SetPalette(55);
+  htheta_vs_zclose->Draw("COLZ");
+  gPad->Modified();
+  gPad->Update();
+
+  TPaveStats *st4 = (TPaveStats*)htheta_vs_zclose->FindObject("stats");
+  if (st4) {
+    st4->SetOptStat(1111);
+    st4->SetX1NDC(0.55); st4->SetX2NDC(0.88);
+    st4->SetY1NDC(0.60); st4->SetY2NDC(0.88);
+    st4->SetTextSize(0.048);
+    st4->Draw("SAME");
+  }
+
+  // PAD5
+  canvas->cd(5);
+  hdxp->SetStats(1);
+  hdxp->Draw("hist");
+  gPad->Modified();
+  gPad->Update();
+
+  // Retrieve the stat box AFTER Update()
+  TPaveStats *st5 = (TPaveStats*)hdxp->FindObject("stats");
+  if (st5) {
+    st5->SetOptStat(1111);
+    st5->SetX1NDC(0.55); st5->SetX2NDC(0.88);
+    st5->SetY1NDC(0.70); st5->SetY2NDC(0.88);
+    st5->SetTextSize(0.048);
+    st5->Draw("SAME");
+  }
+
+  // PAD6
+  canvas->cd(6);
+  hdyp->SetStats(1);
+  hdyp->Draw("hist");
+  gPad->Modified();
+  gPad->Update();
+
+  TPaveStats *st6 = (TPaveStats*)hdyp->FindObject("stats");
+  if (st6) {
+    st6->SetOptStat(1111);
+    st6->SetX1NDC(0.55); st6->SetX2NDC(0.88);
+    st6->SetY1NDC(0.70); st6->SetY2NDC(0.88);
+    st6->SetTextSize(0.048);
+    st6->Draw("SAME");
+  }
+
+  // PAD7
+  canvas->cd(7);
+  hdxpdyp->SetStats(0);
+  hdxpdyp->Draw("COLZ");
+
+  canvas->Modified();
+  canvas->Update();
+
+  // PAD8
+  canvas->cd(8);
+  hdxpdyp_allth->SetStats(0);
+  hdxpdyp_allth->Draw("COLZ");
+
+  canvas->Modified();
+  canvas->Update();
+  
+  canvas->SaveAs("polarimeter_recon.pdf");
+ 
+  
+}

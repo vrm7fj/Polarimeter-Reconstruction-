@@ -1,0 +1,97 @@
+#include "TChain.h"
+#include "TCut.h"
+#include "TH1D.h"
+#include "TH2D.h"
+#include "TCanvas.h"
+#include "TStyle.h"
+#include "TLegend.h"
+
+// --- Helper: Draw a single plot with a combined cut ---
+void QuickDraw(TChain *chain, TString var, TString name, TString title, TString bins, TCut cut, TString drawOpt = "hist") {
+    chain->Draw(Form("%s>>%s(%s)", var.Data(), name.Data(), bins.Data()), cut, drawOpt);
+}
+
+// --- Helper: Draw the 3-histogram overlay for Z-close ---
+void DrawZStack(TChain *chain, TCut baseCut, double theta_cut, TString name_pfx) {
+    TString bins = "150,0,3.0";
+    TString var  = "sbs.gemFPP.track.zclose";
+
+    // 1. All events passing the base cut for this pad
+    QuickDraw(chain, var, name_pfx+"_all", "Z-Close;z_{close} (m);Counts", bins, baseCut, "hist");
+    
+    // 2. Low Theta component
+    TCut lowCut = baseCut + Form("sbs.gemFPP.track.theta*57.3 <= %f", theta_cut);
+    QuickDraw(chain, var, name_pfx+"_lo", "", bins, lowCut, "hist same");
+    
+    // 3. High Theta component
+    TCut hiCut = baseCut + Form("sbs.gemFPP.track.theta*57.3 > %f", theta_cut);
+    QuickDraw(chain, var, name_pfx+"_hi", "", bins, hiCut, "hist same");
+
+    // Styling
+    TH1D *hAll = (TH1D*)gDirectory->Get(name_pfx+"_all");
+    TH1D *hLo  = (TH1D*)gDirectory->Get(name_pfx+"_lo");
+    TH1D *hHi  = (TH1D*)gDirectory->Get(name_pfx+"_hi");
+
+    hAll->SetLineColor(kBlack); hAll->SetLineWidth(2);
+    hLo->SetLineColor(kRed);    hLo->SetFillColorAlpha(kRed, 0.25);
+    hHi->SetLineColor(kBlue);   hHi->SetFillColorAlpha(kBlue, 0.25);
+
+    TLegend *leg = new TLegend(0.4, 0.65, 0.88, 0.88);
+    leg->SetBorderSize(0); leg->SetFillStyle(0);
+    leg->AddEntry(hAll, "All", "l");
+    leg->AddEntry(hLo,  Form("#vartheta #leq %.1f^{o}", theta_cut), "lf");
+    leg->AddEntry(hHi,  Form("#vartheta > %.1f^{o}", theta_cut), "lf");
+    leg->Draw();
+}
+
+void recon_compare2() {
+    // 1. Setup Chains and Files
+    TChain *C1 = new TChain("T");
+    C1->Add("/cache/halla/sbs/prod/GEP_REPLAYS/puckett/August19/gep5_fullreplay_5968*"); 
+    C1->Add("/cache/halla/sbs/prod/GEP_REPLAYS/puckett/August19/gep5_fullreplay_5969*");
+
+    TChain *C2 = new TChain("T");
+    C2->Add("/volatile/halla/sbs/vidura/GEP_REPLAYS/GEP3/LH2/KIN3/rootfiles/gep5_fullreplay_5968*");
+    C2->Add("/volatile/halla/sbs/vidura/GEP_REPLAYS/GEP3/LH2/KIN3/rootfiles/gep5_fullreplay_5969*");
+
+    // 2. Define Global Cuts
+    TCut global_1 = "sqrt(pow((heep.dxECAL-0.01+0.025*earm.ecal.x)/0.0125,2)+pow((heep.dyECAL-(0.0019+0.00365*earm.ecal.x+0.0171*pow(earm.ecal.x,2)+0.01448*pow(earm.ecal.x,3)))/0.0157,2))<=3.5&&abs(heep.dt_ADC-0.5)<9&&abs(heep.dpp-0.0164)<0.04&&abs(sbs.tr.vz+0.1)<0.175&&(sbs.gemFT.track.nhits>4||sbs.gemFT.track.ngoodhits>2)&&sqrt(pow((sbs.gemFPP.track.y+sbs.gemFPP.track.yp*6.7-sbs.hcal.y+0.0132)/0.0425,2)+pow((sbs.gemFPP.track.x+sbs.gemFPP.track.xp*6.7-sbs.hcal.x-0.192)/0.0497,2))<=3.5&&sbs.gemFPP.track.ngoodhits>1&&earm.ecal.nblk>2&&sbs.hcal.nblk>1";
+    TCut global_2 = "sqrt(pow((heep.dxECAL-0.01+0.025*earm.ecal.x)/0.0125,2)+pow((heep.dyECAL-(0.0019+0.00365*earm.ecal.x+0.0171*pow(earm.ecal.x,2)+0.01448*pow(earm.ecal.x,3)))/0.0157,2))<=3.5&&abs(heep.dt_ADC-0.5)<9&&abs(heep.dpp-0.0164)<0.04&&abs(sbs.tr.vz+0.1)<0.175&&(sbs.gemFT.track.nhits>4||sbs.gemFT.track.ngoodhits>2)&&sqrt(pow((sbs.gemFPP.track.y+sbs.gemFPP.track.yp*6.7-sbs.hcal.y+0.0132)/0.0425,2)+pow((sbs.gemFPP.track.x+sbs.gemFPP.track.xp*6.7-sbs.hcal.x-0.192)/0.0497,2))<=3.5&&sbs.gemFPP.track.ngoodhits>1&&earm.ecal.nblk>2&&sbs.hcal.nblk>1";
+
+    // 3. Canvas Setup
+    gStyle->SetOptStat(0);
+    TCanvas *c = new TCanvas("c", "Recon Compare", 2200, 1200);
+    c->Divide(4, 2);
+
+    // --- ROW 1: File 1 ---
+    // Pad 1: Theta with a specific extra cut
+    c->cd(1); gPad->SetLogy();
+    QuickDraw(C1, "sbs.gemFPP.track.theta*57.3", "ht1", "Theta;deg", "150,0,8", global_1 + "");
+
+    // Pad 2: DOCA with a specific extra cut
+    c->cd(2);
+    QuickDraw(C1, "sbs.gemFPP.track.sclose", "hs1", "DOCA;m", "150,0,0.01", global_1 + "");
+
+    // Pad 3: Z-Stack (The complex one)
+    c->cd(3);
+    DrawZStack(C1, global_1 + "sbs.gemFPP.track.theta*57.3 > 0.5", 1.1, "f1");
+
+    // Pad 4: 2D
+    c->cd(4);
+    QuickDraw(C1, "sbs.gemFPP.track.theta*57.3:sbs.gemFPP.track.zclose", "h2_1", "2D;z;theta", "150,0,3,150,0,8", global_1, "colz");
+
+    // --- ROW 2: File 2 ---
+    c->cd(5); gPad->SetLogy();
+    QuickDraw(C2, "sbs.gemFPP.track.theta*57.3", "ht2", "Theta;deg", "150,0,8", global_2);
+
+    c->cd(6);
+    QuickDraw(C2, "sbs.gemFPP.track.sclose", "hs2", "DOCA;m", "150,0,0.01", global_2);
+
+    c->cd(7);
+    DrawZStack(C2, global_2, 1.1, "f2");
+
+    c->cd(8);
+    QuickDraw(C2, "sbs.gemFPP.track.theta*57.3:sbs.gemFPP.track.zclose", "h2_2", "2D;z;theta", "150,0,3,150,0,8", global_2, "colz");
+
+    c->SaveAs("repro_plots.pdf");
+}
